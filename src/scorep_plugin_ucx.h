@@ -88,6 +88,8 @@ class scorep_plugin_ucx : public scorep::plugin::base<scorep_plugin_ucx,
         /* MPI rank of this process */
         int m_mpi_rank;
 
+        char *m_metric_names;
+
         /* UCX sampling object */
         ucx_sampling m_ucx_sampling;
         std::string m_ucx_metric_name;
@@ -98,6 +100,9 @@ class scorep_plugin_ucx : public scorep::plugin::base<scorep_plugin_ucx,
 
         /* Pointer to the Score-P framework metric rename function */
         SCOREP_metric_name_update_t m_pSCOREP_metric_name_update_func;
+
+        void
+        metrics_names_serialize(void **names, size_t *size);
 
         void
         ucx_counters_scorep_update(void);
@@ -142,10 +147,12 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
             /* Get UCX statistics */
             ret = m_ucx_sampling.ucx_statistics_current_value_get(m_mpi_rank, id,
                       &m_ucx_counters_list, value, &prev_val);
+#if 0
             /* Rename UCX counters in Score-P log? only if ret != 0 */
             if (ret) {
                ucx_counters_scorep_update();
             }
+#endif
 
             if (*value != prev_val) {
                 is_value_updated = 1;

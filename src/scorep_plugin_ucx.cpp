@@ -10,6 +10,30 @@
 #include <utils.h>
 #include <stdlib.h>
 
+
+/* Global argc and argv*/
+static int global_argc = 0;
+static char **global_argv = NULL;
+
+/*
+   putting the constructor in the .init_array section.
+   Functions in the .init_array (unlike .init) are called with the same arguments
+   main will be called with: argc, argv and env.
+*/
+static int
+printargs(int argc, char** argv, char** env)
+{
+    DEBUG_PRINT("In printargs:\n");
+    global_argc = argc;
+    global_argv = argv;
+
+   return 0;
+}
+
+/* Put the function into the init_array */
+__attribute__((section(".init_array"))) static void *ctr = (void *)&printargs;
+
+
 scorep_plugin_ucx::scorep_plugin_ucx()
 {
     DEBUG_PRINT("Loading Metric Plugin: UCX Sampling\n");
@@ -24,8 +48,45 @@ scorep_plugin_ucx::~scorep_plugin_ucx()
     for (i = 0; i < m_ucx_counters_list.size(); i++) {
         delete m_ucx_counters_list[i];
     }
+
+    /* Deallocate metrics names */
+    free(m_metric_names);
 }
 
+void
+scorep_plugin_ucx::metrics_names_serialize(void **names, size_t *size)
+{
+    size_t n_counters = m_ucx_counters_list.size();
+    size_t total_size;
+    size_t offset;
+    uint32_t i;
+    char *serialized = NULL;
+
+    *names = NULL;
+    *size = 0;
+
+    total_size = 0;
+    for (i = 0; i < n_counters; i++) {
+        total_size += (::strlen(m_ucx_counters_list[i]->name) + 1);
+    }
+
+    serialized = (char *)malloc(total_size);
+    if (serialized == NULL) {
+        printf("metrics_names_serialize(): Error! Could not allocate serialized,"
+                "total_size = %zu\n", total_size);
+        exit(-1);
+    }
+
+    offset = 0;
+    for (i = 0; i < n_counters; i++) {
+        ::strcpy(&serialized[offset], m_ucx_counters_list[i]->name);
+        DEBUG_PRINT("&serialized[%zu] = %s\n", offset, &serialized[offset]);
+        offset += (::strlen(m_ucx_counters_list[i]->name) + 1);
+    }
+
+    *size = total_size;
+    *names = (void *)serialized;
+}
 
 std::vector<MetricProperty>
 scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
@@ -43,28 +104,117 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
 
     if (event == "UCX") {
         uint32_t i;
+        int ret;
+        int is_initialized;
+        uint64_t prev_val;
+        int flag;
+        int is_value_updated;
+        uint64_t value;
+        uint32_t index = 0;
+        int j;
+        int world_size;
+        uint64_t data[2];
+        size_t count = 1;
+        int root = 0;
+        size_t metric_names_size;
+        uint32_t offset;
+
         m_ucx_metric_name = metric_name;
         m_n_ucx_counters = UCX_NUM_TEMPORARY_COUNTERS;
 
-        /* Allow user to set the number of UCX counters */
-        if (dummy != 1) {
-            m_n_ucx_counters = dummy;
+        /* Don't re-initialize MPI if already iniitalized */
+        ret = PMPI_Initialized(&is_initialized);
+        DEBUG_PRINT("MPI_Init(): Checking if initialized: %d\n", is_initialized);
+        if (!is_initialized) {
+           DEBUG_PRINT("get_metric_properties: global_argc=%d, global_argv=%p",
+               global_argc, global_argv);
+           PMPI_Init(&global_argc, &global_argv);
         }
 
-        DEBUG_PRINT("m_n_ucx_counters = %u\n", m_n_ucx_counters);
+        m_mpi_t_initialized = 1;
+        /* get global rank */
+        PMPI_Comm_rank(MPI_COMM_WORLD, &m_mpi_rank);
+
+        /*
+           Need MPI_T initialization here since the UDP port number of the
+           UCX statistics server is derived from the process_id.
+           Also, all statistics are aggregated by MPI_rank 0 (root).
+        */
+        DEBUG_PRINT("m_mpi_rank = %d\n", m_mpi_rank);
+        if (m_mpi_rank == 0) {
+            /* Start UCX statistics server */
+            ret = m_ucx_sampling.ucx_statistics_server_start(UCS_STATS_DEFAULT_UDP_PORT);
+
+            /* Get UCX statistics */
+            ret = m_ucx_sampling.ucx_statistics_current_value_get(m_mpi_rank, index,
+                      &m_ucx_counters_list, &value, &prev_val);
+            PMPI_Barrier(MPI_COMM_WORLD);
+            // If we are the root process, send our data to everyone
+            PMPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+            /* Serialize metric names */
+            metrics_names_serialize((void **)&m_metric_names, &metric_names_size);
+
+            /* 1. Broadcast size */
+            data[0] = m_ucx_counters_list.size();
+            MPI_Bcast(&data[0], 1, MPI_LONG_LONG, root, MPI_COMM_WORLD);
+
+            data[1] = (uint64_t)metric_names_size;
+            MPI_Bcast(&data[1], 1, MPI_LONG_LONG, root, MPI_COMM_WORLD);
+
+            /* 2. Broadcast names */
+            MPI_Bcast((void *)m_metric_names, metric_names_size, MPI_CHAR, root, MPI_COMM_WORLD);
+        }
+        else {
+            PMPI_Barrier(MPI_COMM_WORLD);
+            // If we are a receiver process, receive the data from the root
+            MPI_Bcast(&data[0], 1, MPI_LONG_LONG, root, MPI_COMM_WORLD);
+
+            MPI_Bcast(&data[1], 1, MPI_LONG_LONG, root, MPI_COMM_WORLD);
+            metric_names_size = (size_t)data[1];
+
+            m_metric_names = (char *)malloc(metric_names_size);
+            if (m_metric_names == NULL) {
+                printf("UCX get_metric_properties(): Error! could not allocate metric_names,"
+                    " size=%zu\n", metric_names_size);
+            }
+
+            /* 2. Receive metrics names */
+            MPI_Bcast((void *)m_metric_names, metric_names_size, MPI_CHAR, root, MPI_COMM_WORLD);
+        }
+        DEBUG_PRINT("ucx_statistics_current_value_get() - Done\n");
+
+        /* Allow user to set the number of UCX counters */
+        m_n_ucx_counters = (size_t)data[0];
+        if (dummy != 1) {
+            m_n_ucx_counters = std::min((size_t)m_n_ucx_counters, (size_t)dummy);
+        }
+
+        DEBUG_PRINT("Number of UCX counters detected: %u, metric_names_size=%zu\n",
+                m_n_ucx_counters, metric_names_size);
 
         /*
           Create counters as place holders, we're not sure how many we
           will need.
         */
+        offset = 0;
         for (i = 0; i < m_n_ucx_counters; i++) {
+            char *name;
             std::string temp_counter_name;
 
-            TEMPORARY_UCX_COUNTER_NAME_GEN(temp_counter_name,
-               metric_name, temp_counter_name, i);
+            if (m_mpi_rank == 0) {
+                name = m_ucx_counters_list[i]->name;
+            }
+            else {
+                name = &m_metric_names[offset];
+                offset += (::strlen(&m_metric_names[offset]) + 1);
+            }
 
-            /* Push some temp counters as placeholders for events */
-            metric_properties.insert(metric_properties.begin(),
+            DEBUG_PRINT("[%d] Adding metric name: %s\n", m_mpi_rank, temp_counter_name.c_str());
+
+            temp_counter_name = metric_name + "_" + name;
+
+            metric_properties.insert(metric_properties.end(),
                MetricProperty(temp_counter_name.c_str(), "", "").absolute_point().value_uint().decimal());
         }
     }
@@ -96,17 +246,10 @@ scorep_plugin_ucx::add_metric(const std::string& metric)
 
     /* UCX? */
     if (event == "UCX") {
-        static uint32_t current_id = (m_n_ucx_counters - 1);
+        static uint32_t current_id = 0;
 
-        /*
-           As part of the UCX workarond:
-           Only temporary counters are registered at this point.
-        */
         id = current_id;
-        current_id--;
-        if (id < 0) {
-            printf("Warning, UCX counter id < SCOREP_COUNTER_ID_START_UCX: %d\n", id);
-        }
+        current_id++;
     }
 
     return id;

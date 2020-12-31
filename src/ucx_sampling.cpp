@@ -233,36 +233,26 @@ ucx_sampling::ucx_statistics_current_value_get(int mpi_rank, uint32_t index,
         return 0;
     }
 
-    if (m_statistics_server_process_enable) {
-        counter++;
-        if (ucx_counters_list->size() == 0) {
-            if ((counter & 0xFF) == 0) {
-               /* Initialize counters list */
-               initialize_counters_enable = 1;
-               ucx_statistics_all_counters_update(ucx_counters_list,
-                  initialize_counters_enable);
+    if (ucx_counters_list->size() == 0) {
+        if ((counter & 0xFF) == 0) {
+           /* Initialize counters list */
+           initialize_counters_enable = 1;
+           ucx_statistics_all_counters_update(ucx_counters_list,
+              initialize_counters_enable);
 
-	           if (ucx_counters_list->size() != 0) {
-	              m_counters_initialized_on_scorep = 1;
-                  printf("Added UCX counters after scan, size = %u\n",
-	                   ucx_counters_list->size());
-	              /* Indicates initialized counters list */
-	              return 1;
-    	       }
-	        }
+           printf("Detected UCX counters after scan, size = %u\n",
+                ucx_counters_list->size());
+
+           if (ucx_counters_list->size() != 0) {
+              m_counters_initialized_on_scorep = 1;
+              printf("Added UCX counters after scan, size = %u\n",
+                   ucx_counters_list->size());
+              /* Indicates initialized counters list */
+              return 1;
+           }
         }
     }
-    else {
-        /* Start UCX statistics server */
-        if (mpi_rank == 0) {
-            uint16_t port_num = UCS_STATS_DEFAULT_UDP_PORT;
-            int ret;
-            ret = this->ucx_statistics_server_start(port_num);
-        }
-
-        *value = 0;
-        return 0;
-    }
+    counter++;
 
     return 0;
 }
