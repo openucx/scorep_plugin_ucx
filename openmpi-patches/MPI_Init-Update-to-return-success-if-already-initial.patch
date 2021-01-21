@@ -1,0 +1,34 @@
+From 158e806b83aab2d5af52af3d9ed318d27bf6961c Mon Sep 17 00:00:00 2001
+From: Shuki Zanyovka <shuki.zanyovka@huawei.com>
+Date: Wed, 30 Dec 2020 17:17:30 +0200
+Subject: [PATCH] MPI_Init: Update to return success if already initialized
+
+- The reason for this is to support multiple calls to MPI_Init().
+- Required in the case where a Score-P plugin is required to initialize
+  MPI even before the Score-P framework executed the application.
+---
+ ompi/mpi/c/init.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/ompi/mpi/c/init.c b/ompi/mpi/c/init.c
+index 9f4ba25..6331463 100644
+--- a/ompi/mpi/c/init.c
++++ b/ompi/mpi/c/init.c
+@@ -49,6 +49,14 @@ int MPI_Init(int *argc, char ***argv)
+     int provided;
+     char *env;
+     int required = MPI_THREAD_SINGLE;
++    int ret;
++    int is_initialized;
++
++    /* Don't re-initialize MPI if already iniitalized */
++    ret = MPI_Initialized(&is_initialized);
++    if (is_initialized) {
++        return MPI_SUCCESS;
++    }
+ 
+     /* check for environment overrides for required thread level.  If
+        there is, check to see that it is a valid/supported thread level.
+-- 
+1.8.3.1
+
