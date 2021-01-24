@@ -1,4 +1,5 @@
 # scorep_plugin_UCX
+
 Score-P UCX data acquisition plugin
 
 First, download, build and install the Huawei updated Score-P (currently not supported in the Score-P release),
@@ -22,6 +23,10 @@ cd BUILD
 cmake ../ -DCMAKE_C_STANDARD_COMPUTED_DEFAULT=GNU -DCMAKE_CXX_STANDARD_COMPUTED_DEFAULT=GNU -DCMAKE_CXX_COMPILER=mpic++ -DCMAKE_C_COMPILER=mpicc
 make
 ```
+
+# OpenMPI patches
+
+For using with OpenMPI, please review and apply all patches under ./openmpi-patches directory (already applied in HMPI).
 
 # To use, please enable the plugin as follows,
 
