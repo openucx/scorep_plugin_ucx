@@ -103,7 +103,7 @@ ucx_sampling::recursive_scan_counters_list(ucs_stats_node_t *root,
         }
 
         for (int k = 0; k < data_node->cls->num_counters; k++) {
-            if ( initialize_counters_enable || (num_counters >= ucx_counters_list->size()) ) {
+            if (initialize_counters_enable) {
                 ucx_performance_counter = new scorep_counter_data_t();
                 ucx_performance_counter->scorep_counter_id = num_counters;
                 ucx_performance_counter->metric_handle = 0;
@@ -119,6 +119,10 @@ ucx_sampling::recursive_scan_counters_list(ucs_stats_node_t *root,
                 ucx_counters_list->push_back(ucx_performance_counter);
             }
             else {
+                if (num_counters >= ucx_counters_list->size()) {
+                    /* We are not updating the counters list in runtime */
+                    goto ucx_scan_counters_complete_exit;
+                }
                 (*ucx_counters_list)[num_counters]->value = data_node->counters[k];
             }
 
@@ -140,6 +144,7 @@ ucx_sampling::recursive_scan_counters_list(ucs_stats_node_t *root,
               num_objects, num_counters, initialize_counters_enable);
     }
 
+ucx_scan_counters_complete_exit:
     return n_local_objects;
 }
 
