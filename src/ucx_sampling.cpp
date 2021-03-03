@@ -103,7 +103,7 @@ ucx_sampling::recursive_scan_counters_list(ucs_stats_node_t *root,
         }
 
         for (int k = 0; k < data_node->cls->num_counters; k++) {
-            if (initialize_counters_enable) {
+            if ( initialize_counters_enable || (num_counters >= ucx_counters_list->size()) ) {
                 ucx_performance_counter = new scorep_counter_data_t();
                 ucx_performance_counter->scorep_counter_id = num_counters;
                 ucx_performance_counter->metric_handle = 0;
