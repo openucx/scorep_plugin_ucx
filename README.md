@@ -1,4 +1,4 @@
-# scorep_plugin_UCX
+# Scorep UCX plugin
 
 Score-P UCX data acquisition plugin
 
@@ -28,7 +28,7 @@ make
 
 For using with OpenMPI, please review and apply all patches under ./openmpi-patches directory (already applied in HMPI).
 
-# To use, please enable the plugin as follows,
+# To use the plugin for data acquisition, please enable the plugin as follows,
 
 ```
 export LOCAL_USER_SCOREP_INSTALL_PATH=<Score-P 6.0 Install Path>/scorep-6.0
@@ -55,7 +55,7 @@ export SCOREP_METRIC_PLUGINS="scorep_plugin_ucx"
 export SCOREP_METRIC_SCOREP_PLUGIN_MPI=UCX@20
 ```
 
-# Disable profilin and enable tracing,
+# Disable profiling and enable tracing,
 
 ```
 export SCOREP_ENABLE_PROFILING=false
@@ -101,10 +101,13 @@ export SCOREP_TOTAL_MEMORY=1000M
 export UCX_STATS_DEST="udp:localhost:37873"
 ```
 
-# Apply filter:
+# Apply UCX statistics filtering as follows,
 
 ```
 export UCX_STATS_FILTER="rx_am*,bytes_short,bytes_bcopy,bytes_zcopy,rx*,tx*"
 
+```
+# Following configuration, execute the MPI application as follows,
+```
 mpirun -n 2 <mpi_application>
 ```
