@@ -30,6 +30,9 @@ extern "C" {
 #define NEG_INF							-10000000
 #define POS_INF							10000000
 
+/* Maximum number of aggregate-sum counters */
+#define UCX_AGGREGATE_SUM_NUM_COUNTERS_MAX 64
+
 /*********************************/
 /* Main class for ucx Sampling */
 /*********************************/
@@ -53,6 +56,16 @@ public:
    void
    ucx_statistics_all_counters_update(scorep_counters_list_t *new_counters_list,
        int initialize_counters_enable);
+
+
+   /* Get current aggregate-sum value of a certain index */
+   int
+   ucx_statistics_aggregate_counter_get(uint32_t index, uint64_t *value);
+
+   /* Get current aggregate-sum counter names of all indices */
+   int
+   ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_counter_name_t **names_p,
+       size_t *size_p);
 
 private:
 
@@ -85,6 +98,18 @@ private:
 
    /* Score-P counters initialized (updated dynamically) */
    int m_counters_initialized_on_scorep;
+
+   /* size of aggregate-sum counters list */
+   size_t m_aggrgt_sum_size;
+
+   /* Aggregate-sum counters list */
+   ucs_stats_counter_t m_aggrgt_sum_counters[UCX_AGGREGATE_SUM_NUM_COUNTERS_MAX];
+
+   /* The counters names */
+   const ucs_stats_aggrgt_counter_name_t *m_aggrgt_sum_counter_names;
+   /* The size of the counters names */
+   size_t m_aggrgt_sum_counter_names_size;
+
 };
 
 

@@ -111,3 +111,11 @@ export UCX_STATS_FILTER="rx_am*,bytes_short,bytes_bcopy,bytes_zcopy,rx*,tx*"
 ```
 mpirun -n 2 <mpi_application>
 ```
+
+# UCX aggregate-sum counters statistics
+```
+The Score-P UCX plugin uses the UCX aggregate-sum counters statistics by default - This basically means that,
+1) All counters values of the same class/type will be saved in the same counter in the trace.
+2) The user can build the plugin without using this feature by enabling the SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE flag in scorep_plugin_ucx.h
+```
+

@@ -43,6 +43,7 @@ scorep_plugin_ucx::scorep_plugin_ucx()
 
 scorep_plugin_ucx::~scorep_plugin_ucx()
 {
+#if defined(SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE)
     uint64_t i;
 
     for (i = 0; i < m_ucx_counters_list.size(); i++) {
@@ -51,6 +52,7 @@ scorep_plugin_ucx::~scorep_plugin_ucx()
 
     /* Deallocate metrics names */
     free(m_metric_names);
+#endif
 }
 
 void
@@ -94,6 +96,23 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
     unsigned long long int hex_dummy;
     int assigned_event = 0;
     std::vector<MetricProperty> metric_properties;
+    uint32_t i;
+    int ret;
+    int is_initialized;
+    uint64_t prev_val;
+    int flag;
+    int is_value_updated;
+    uint32_t index = 0;
+    int j;
+    int world_size;
+    uint64_t data[2];
+    size_t count = 1;
+    int root = 0;
+    size_t metric_names_size;
+    uint32_t offset;
+    uint64_t value;
+    const ucs_stats_aggrgt_counter_name_t *counter_names;
+    size_t size;
 
     DEBUG_PRINT("scorep_plugin_ucx::get_metric_properties() called with: %s\n",
             metric_name);
@@ -103,22 +122,6 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
     DEBUG_PRINT("Event=%s dummy=%u, hex_dummy=%lx\n", event, dummy, hex_dummy);
 
     if (event == "UCX") {
-        uint32_t i;
-        int ret;
-        int is_initialized;
-        uint64_t prev_val;
-        int flag;
-        int is_value_updated;
-        uint64_t value;
-        uint32_t index = 0;
-        int j;
-        int world_size;
-        uint64_t data[2];
-        size_t count = 1;
-        int root = 0;
-        size_t metric_names_size;
-        uint32_t offset;
-
         m_ucx_metric_name = metric_name;
         m_n_ucx_counters = UCX_NUM_TEMPORARY_COUNTERS;
 
@@ -141,6 +144,9 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
            Also, all statistics are aggregated by MPI_rank 0 (root).
         */
         DEBUG_PRINT("m_mpi_rank = %d\n", m_mpi_rank);
+
+        /* Legacy mode? ==> Use all counters */
+#if defined(SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE)
         if (m_mpi_rank == 0) {
             /* Start UCX statistics server */
             ret = m_ucx_sampling.ucx_statistics_server_start(UCS_STATS_DEFAULT_UDP_PORT);
@@ -218,8 +224,41 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
                MetricProperty(temp_counter_name.c_str(), "", "").absolute_point().value_uint().decimal());
         }
     }
+#else
+        /* ===> New mode: Use the UCX aggregate-sum API to reduce the amount of collected information */
+        /* For now, we need to enable the server to enable UCX counters collection */
+        if (m_mpi_rank == 0) {
+            /* Start UCX statistics server */
+            ret = m_ucx_sampling.ucx_statistics_server_start(UCS_STATS_DEFAULT_UDP_PORT);
+        }
+
+        index = 0;
+        ret = m_ucx_sampling.ucx_statistics_aggregate_counter_get(index, &value);
+        if (!ret) {
+            printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
+        }
+
+        ret = m_ucx_sampling.ucx_statistics_aggregate_counter_names_get(&counter_names, &size);
+        if (!ret) {
+            printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
+        }
+
+        /* Update Score-P with metrics names */
+        for (i = 0; i < size; i++) {
+            std::string temp_counter_name;
+
+            DEBUG_PRINT("[%d] Adding metric name: %s\n", m_mpi_rank, temp_counter_name.c_str());
+
+            temp_counter_name = metric_name + "_" + counter_names[i].class_name + "_" + counter_names[i].counter_name;
+
+            metric_properties.insert(metric_properties.end(),
+               MetricProperty(temp_counter_name.c_str(), "", "").absolute_point().value_uint().decimal());
+        }
+
+    }
+#endif /* SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE */
     else if ((event == SCOREP_STRICTLY_SYNCHRONOUS_METRIC_NAME_UPDATE_FUNC_NAME) ||
-             (event == SCOREP_METRIC_NAME_UPDATE_FUNC_NAME)){
+             (event == SCOREP_METRIC_NAME_UPDATE_FUNC_NAME)) {
         assigned_event = 1;
         m_pSCOREP_metric_name_update_func =
             (SCOREP_metric_name_update_t)hex_dummy;

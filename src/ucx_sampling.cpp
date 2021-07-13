@@ -261,3 +261,39 @@ ucx_sampling::ucx_statistics_current_value_get(int mpi_rank, uint32_t index,
 
     return 0;
 }
+
+int
+ucx_sampling::ucx_statistics_aggregate_counter_get(uint32_t index, uint64_t *value)
+{
+    int ret = 1;
+
+    if (unlikely(index == 0)) {
+        m_aggrgt_sum_size = ucs_stats_aggregate(m_aggrgt_sum_counters, ARRAY_SIZE(m_aggrgt_sum_counters));
+        if (m_aggrgt_sum_size == 0) {
+            printf("Warning: ucs_stats_aggregate() aggrgt_sum_size == 0");
+            ret = 0;
+            *value = 0;
+        }
+
+        *value = m_aggrgt_sum_counters[0];
+    }
+    else {
+        *value = m_aggrgt_sum_counters[index];
+    }
+
+    return ret;
+}
+
+int
+ucx_sampling::ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_counter_name_t **names_p,
+    size_t *size_p)
+{
+    /* Get counters names */
+    ucs_stats_aggregate_get_counter_names(&m_aggrgt_sum_counter_names, &m_aggrgt_sum_counter_names_size);
+
+    *names_p = m_aggrgt_sum_counter_names;
+    *size_p = m_aggrgt_sum_counter_names_size;
+
+    return (m_aggrgt_sum_counter_names_size > 0);
+}
+

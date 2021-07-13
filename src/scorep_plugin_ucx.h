@@ -17,6 +17,12 @@
 #include <tuple>
 #include <vector>
 
+/*
+   Enable plugin in UCX Statistics legacy mode
+   (i.e. don't use aggregate-sum)
+*/
+//#define SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -124,6 +130,7 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
     *value = 0;
     *prev_value = 0;
 
+#if defined(SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE)
     /* UCX counter */
     /* Enumerate PVARs */
     if (0 == m_mpi_t_initialized) {
@@ -162,6 +169,11 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
             }
         }
     }
+#else
+    /* Update counter via Aggregate-sum API */
+    ret = m_ucx_sampling.ucx_statistics_aggregate_counter_get(id, value);
+    is_value_updated = 1;
+#endif //SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE
 
     return is_value_updated;
 }
