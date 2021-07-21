@@ -39,6 +39,11 @@ scorep_plugin_ucx::scorep_plugin_ucx()
     DEBUG_PRINT("Loading Metric Plugin: UCX Sampling\n");
 
     m_mpi_t_initialized = 0;
+
+#if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
+    m_ticks_cnt_get_total = 0;
+    m_ticks_cnt_get_num_times = 0;
+#endif
 }
 
 scorep_plugin_ucx::~scorep_plugin_ucx()
@@ -52,6 +57,14 @@ scorep_plugin_ucx::~scorep_plugin_ucx()
 
     /* Deallocate metrics names */
     free(m_metric_names);
+#endif
+
+#if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
+    double mean_get_count_ticks = m_ticks_cnt_get_total / m_ticks_cnt_get_num_times;
+    printf("==================================================\n");
+    printf("Performance: mean_get_count_ticks=%lf, cnt_get_num_times=%lf\n", mean_get_count_ticks,
+            m_ticks_cnt_get_num_times);
+    printf("==================================================\n");
 #endif
 }
 

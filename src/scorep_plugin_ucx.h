@@ -16,12 +16,19 @@
 #include <thread>
 #include <tuple>
 #include <vector>
+#include <x86intrin.h>
 
 /*
    Enable plugin in UCX Statistics legacy mode
    (i.e. don't use aggregate-sum)
 */
 //#define SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE
+
+/*
+   Enable plugin microbenchmark: Measure mean CPU cycles
+   for getting a single counter value.
+*/
+//#define SCOREP_PLUGIN_MICROBENCHMARK_ENABLE
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,6 +114,11 @@ class scorep_plugin_ucx : public scorep::plugin::base<scorep_plugin_ucx,
         /* Pointer to the Score-P framework metric rename function */
         SCOREP_metric_name_update_t m_pSCOREP_metric_name_update_func;
 
+#if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
+        double m_ticks_cnt_get_total;
+        double m_ticks_cnt_get_num_times;
+#endif
+
         void
         metrics_names_serialize(void **names, size_t *size);
 
@@ -186,9 +198,20 @@ scorep_plugin_ucx::get_current_value(int32_t id, Proxy& proxy)
     uint64_t value;
     uint64_t prev_value;
 
+#if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
+    uint64_t ticks_start = __rdtsc();
+#endif
+
     is_value_updated = current_value_get(id, &value, &prev_value);
 
     proxy.write(value);
+
+
+#if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
+    /* Update micro benchmark */
+    m_ticks_cnt_get_total += (double)(__rdtsc() - ticks_start);
+    m_ticks_cnt_get_num_times++;
+#endif
 }
 
 
@@ -200,8 +223,18 @@ scorep_plugin_ucx::get_optional_value(int32_t id, Proxy& proxy)
     uint64_t value;
     uint64_t prev_value;
 
+#if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
+    uint64_t ticks_start = __rdtsc();
+#endif
+
     is_value_updated = current_value_get(id, &value, &prev_value);
     proxy.write(value);
+
+#if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
+    /* Update micro benchmark */
+    m_ticks_cnt_get_total += (double)(__rdtsc() - ticks_start);
+    m_ticks_cnt_get_num_times++;
+#endif
 }
 
 #endif /* _SCOREP_PLUGIN_UCX_H_ */
