@@ -20,12 +20,15 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <getopt.h>
-#include <stdlib.h>
 #include <math.h>
 
 #include <getopt.h>
 
 #include <utils.h>
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+#include <ucs/counters/ethtool_ctrs.h>
+#endif
 
 #include "ucx_sampling.h"
 
@@ -39,11 +42,38 @@ ucx_sampling::ucx_sampling()
 {
     m_counters_initialized_on_scorep = 0;
     m_statistics_server_process_enable = 0;
+
+    /* Set NIC counters to not initialized */
+    m_nic_counters_initialized = 0;
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+    /* allocate memory for stats_handle of the device  */
+    m_nic_ndev_name = getenv(ENV_SCOREP_UCX_PLUGIN_NIC_DEVICE_NAME);
+    if (m_nic_ndev_name != NULL) {
+        ucs_status_t status = stats_alloc_handle(m_nic_ndev_name, &m_eth_stats_handle);
+        if (status != UCS_OK) {
+            printf("Warning: stats_alloc_handle() failed! status=%d\n", status);
+        }
+    }
+    else {
+        m_nic_counters_initialized = 1;
+    }
+    DEBUG_PRINT("m_nic_ndev_name = %s\n", m_nic_ndev_name);
+#endif
 }
 
 /* Destructor */
 ucx_sampling::~ucx_sampling()
 {
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+    /* release the memory of stats_handle of the device  */
+    if ((m_nic_counters_initialized) && (m_nic_ndev_name != NULL)) {
+        ucs_status_t status = stats_release_handle(&m_eth_stats_handle);
+        if (status != UCS_OK) {
+            printf("Warning: stats_release_handle() failed! status=%d\n", status);
+        }
+    }
+#endif
 }
 
 int ucx_sampling::ucx_statistics_server_start(int port)
@@ -297,3 +327,50 @@ ucx_sampling::ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_
     return (m_aggrgt_sum_counter_names_size > 0);
 }
 
+void
+ucx_sampling::nic_counters_update(size_t *num_counters)
+{
+    *num_counters = 0;
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+    if (m_nic_counters_initialized) {
+        /* query device counters and store them in stats_handle  */
+        void *filter = NULL;
+        ucs_status_t status = stats_query_device(&m_eth_stats_handle, filter);
+        if (status != UCS_OK) {
+            printf("Warning: stats_query_device() failed! status=%d\n", status);
+        }
+
+        *num_counters = m_eth_stats_handle.super.n_stats;
+    }
+#endif
+}
+
+uint64_t
+ucx_sampling::nic_counter_value_get(uint32_t index)
+{
+    uint64_t value = 0;
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+    if (m_nic_counters_initialized) {
+        value = m_eth_stats_handle.super.stats->data[index];
+    }
+#endif
+
+    return value;
+}
+
+const char *
+ucx_sampling::nic_counter_name_get(uint32_t index)
+{
+    const char *counter_name = NULL;
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+    if (m_nic_counters_initialized) {
+        counter_name =
+            (const char *)&m_eth_stats_handle.super.strings->data[index * ETH_GSTRING_LEN];
+    }
+#endif
+
+    return counter_name;
+}

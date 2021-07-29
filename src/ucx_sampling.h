@@ -20,6 +20,12 @@ extern "C" {
 
 #include <plugin_types.h>
 
+#include <scorep_plugin_ucx_config.h>
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+#include <ucs/counters/ethtool_ctrs.h>
+#endif
+
 #define THRESHOLD 						0
 #define NOT_FOUND 						-1
 #define FALSE 							0
@@ -67,6 +73,18 @@ public:
    ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_counter_name_t **names_p,
        size_t *size_p);
 
+   /* Read NIC counters into stats handle ==> Update statistics */
+   void
+   nic_counters_update(size_t *num_counters);
+
+   /* Get NIC counter value - Returns the value of the counter */
+   uint64_t
+   nic_counter_value_get(uint32_t index);
+
+   /* Get NIC counter name - Returns the counter name */
+   const char *
+   nic_counter_name_get(uint32_t index);
+
 private:
 
    uint64_t
@@ -110,6 +128,16 @@ private:
    /* The size of the counters names */
    size_t m_aggrgt_sum_counter_names_size;
 
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+   /* NIC counters handle */
+   ethtool_stats_handle_t m_eth_stats_handle;
+
+   /* NIC device name */
+   const char *m_nic_ndev_name;
+#endif
+
+   /* NIC counters initialized status */
+   int m_nic_counters_initialized;
 };
 
 

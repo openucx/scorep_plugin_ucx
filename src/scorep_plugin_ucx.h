@@ -18,18 +18,6 @@
 #include <vector>
 #include <x86intrin.h>
 
-/*
-   Enable plugin in UCX Statistics legacy mode
-   (i.e. don't use aggregate-sum)
-*/
-//#define SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE
-
-/*
-   Enable plugin microbenchmark: Measure mean CPU cycles
-   for getting a single counter value.
-*/
-//#define SCOREP_PLUGIN_MICROBENCHMARK_ENABLE
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,6 +25,8 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+#include <scorep_plugin_ucx_config.h>
 
 #include <ucx_sampling.h>
 #include <plugin_types.h>

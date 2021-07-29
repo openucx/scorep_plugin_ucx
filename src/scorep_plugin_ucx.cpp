@@ -277,6 +277,24 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
             (SCOREP_metric_name_update_t)hex_dummy;
     }
 
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+    /* Update NIC counters */
+    int idx;
+    uint64_t num_counters;
+
+    /* Update NIC counters */
+    m_ucx_sampling.nic_counters_update(&num_counters);
+
+    /* print the counters stored in stats_handle */
+    DEBUG_PRINT("MLX5 statistics:");
+    for (idx = 0; idx < num_counters; idx++) {
+        DEBUG_PRINT("     %.*s: %llu\n", ETH_GSTRING_LEN,
+                    m_ucx_sampling.nic_counter_name_get(idx),
+                    m_ucx_sampling.nic_counter_value_get(idx));
+    }
+#endif
+
     /* Debug print */
     if (assigned_event) {
         DEBUG_PRINT("%s = %lx\n", event, (uintptr_t)hex_dummy);
