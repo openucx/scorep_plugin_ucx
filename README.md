@@ -117,5 +117,30 @@ mpirun -n 2 <mpi_application>
 The Score-P UCX plugin uses the UCX aggregate-sum counters statistics by default - This basically means that,
 1) All counters values of the same class/type will be saved in the same counter in the trace.
 2) The user can build the plugin without using this feature by enabling the SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE flag in scorep_plugin_ucx.h
+
+Please note, that the user should set the environment variables as follows to collect the UCX software counters,
+# Enable UCX SW counters collection.
+export SCOREP_UCX_PLUGIN_UCX_COLLECTION_ENABLE=1
+# Enable NIC counters collection.
+export SCOREP_UCX_PLUGIN_NIC_COLLECTION_ENABLE=0
+```
+
+# UCX Nvidia Connectx-* NIC counters aggregate-sum counters statistics
+```
+In a separate run, the user can enable collecting the aggregate-sum of the Nvidia Connectix-* NIC counters by setting the following environment variables:
+
+# interface name, can be acquired using the 'ibdev2netdev' command as seen in the example below.
+export SCOREP_UCX_PLUGIN_NIC_DEVICE_NAME="ens2f0"
+# Enable UCX SW counters collection.
+export SCOREP_UCX_PLUGIN_UCX_COLLECTION_ENABLE=0
+# Enable NIC counters collection.
+export SCOREP_UCX_PLUGIN_NIC_COLLECTION_ENABLE=1
+
+$ ibdev2netdev
+mlx5_0 port 1 ==> ens3f0 (Up)
+mlx5_1 port 1 ==> ib0 (Down)
+mlx5_2 port 1 ==> ens2f0 (Up)
+mlx5_3 port 1 ==> ib1 (Down)
+
 ```
 

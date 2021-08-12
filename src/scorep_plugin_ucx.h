@@ -88,6 +88,12 @@ class scorep_plugin_ucx : public scorep::plugin::base<scorep_plugin_ucx,
         /* Indicates whether or not MPI is initialized */
         int m_mpi_t_initialized;
 
+        /* Enable UCX counters collection. */
+        int m_ucx_counters_collect_enable;
+
+        /* Enable NIC counters collection. */
+        int m_nic_counters_collect_enable;
+
         /* MPI rank of this process */
         int m_mpi_rank;
 
@@ -118,6 +124,10 @@ class scorep_plugin_ucx : public scorep::plugin::base<scorep_plugin_ucx,
         /* Renames a Score-P metric (for dynamic allocation of metrics) */
         int
         scorep_metric_rename(uint32_t counter_id, const char *counter_new_name, size_t num_metrics_set);
+
+        /* UCX statistics - Legacy enumerator */
+        void
+        ucx_statistics_enumerate_legacy(uint64_t dummy);
 };
 
 
@@ -128,6 +138,7 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
     int ret;
     int flag;
     int is_value_updated;
+    size_t num_ucx_aggrgt_sum_cnts;
 
     *value = 0;
     *prev_value = 0;
@@ -156,13 +167,6 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
             /* Get UCX statistics */
             ret = m_ucx_sampling.ucx_statistics_current_value_get(m_mpi_rank, id,
                       &m_ucx_counters_list, value, &prev_val);
-#if 0
-            /* Rename UCX counters in Score-P log? only if ret != 0 */
-            if (ret) {
-               ucx_counters_scorep_update();
-            }
-#endif
-
             if (*value != prev_val) {
                 is_value_updated = 1;
             }
@@ -173,8 +177,23 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
     }
 #else
     /* Update counter via Aggregate-sum API */
-    ret = m_ucx_sampling.ucx_statistics_aggregate_counter_get(id, value);
-    is_value_updated = 1;
+    num_ucx_aggrgt_sum_cnts = m_ucx_sampling.ucx_statistics_aggrgt_sum_total_counters_num_get();
+    if (id < num_ucx_aggrgt_sum_cnts) {
+        /* UCX SW counters */
+        ret = m_ucx_sampling.ucx_statistics_aggregate_counter_get(id, value);
+        is_value_updated = 1;
+    }
+    else { /* NIC counters */
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+        /*
+           Get counter value (the index of the NIC counter
+           is calculated by substracting the num_ucx_aggrgt_sum_cnts from the
+           Score-P counter index.
+        */
+        *value = m_ucx_sampling.nic_counter_value_get((id - num_ucx_aggrgt_sum_cnts));
+        is_value_updated = 1;
+#endif
+    }
 #endif //SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE
 
     return is_value_updated;

@@ -12,11 +12,11 @@
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip.h> /* superset of previous */
-
 #include <stdint.h>
 #include <inttypes.h>
 #include <getopt.h>
@@ -43,6 +43,13 @@ ucx_sampling::ucx_sampling()
     m_counters_initialized_on_scorep = 0;
     m_statistics_server_process_enable = 0;
 
+    /* Initialize  */
+    m_aggrgt_sum_size = 0;
+    memset(m_aggrgt_sum_counters, 0x00, sizeof(m_aggrgt_sum_counters));
+
+    m_aggrgt_sum_counter_names = NULL;
+    m_aggrgt_sum_counter_names_size = 0;
+
     /* Set NIC counters to not initialized */
     m_nic_counters_initialized = 0;
 
@@ -54,11 +61,19 @@ ucx_sampling::ucx_sampling()
         if (status != UCS_OK) {
             printf("Warning: stats_alloc_handle() failed! status=%d\n", status);
         }
+        else {
+            m_nic_counters_initialized = 1;
+        }
     }
-    else {
-        m_nic_counters_initialized = 1;
-    }
+
     DEBUG_PRINT("m_nic_ndev_name = %s\n", m_nic_ndev_name);
+
+    /* Initiaize NIC counters database */
+    m_nic_cnts_agrgt_num = 0;
+    m_num_nic_counters_total = 0;
+    memset(m_nic_cnts_agrgt_mapping, 0x00, sizeof(m_nic_cnts_agrgt_mapping));
+    memset(m_nic_cnts_agrgt, 0x00, sizeof(m_nic_cnts_agrgt));
+    m_nic_rounds_cnt = 0;
 #endif
 }
 
@@ -75,6 +90,14 @@ ucx_sampling::~ucx_sampling()
     }
 #endif
 }
+
+void
+ucx_sampling::configuration_set(int ucx_counters_enable, int nic_counters_enable)
+{
+    m_ucx_counters_collect_enable = ucx_counters_enable;
+    m_nic_counters_collect_enable = nic_counters_enable;
+}
+
 
 int ucx_sampling::ucx_statistics_server_start(int port)
 {
@@ -327,12 +350,14 @@ ucx_sampling::ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_
     return (m_aggrgt_sum_counter_names_size > 0);
 }
 
+/* NIC counters implementation */
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+
 void
 ucx_sampling::nic_counters_update(size_t *num_counters)
 {
     *num_counters = 0;
 
-#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
     if (m_nic_counters_initialized) {
         /* query device counters and store them in stats_handle  */
         void *filter = NULL;
@@ -343,34 +368,117 @@ ucx_sampling::nic_counters_update(size_t *num_counters)
 
         *num_counters = m_eth_stats_handle.super.n_stats;
     }
-#endif
 }
 
 uint64_t
 ucx_sampling::nic_counter_value_get(uint32_t index)
 {
     uint64_t value = 0;
+    size_t num_counters;
 
-#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
     if (m_nic_counters_initialized) {
+        /* Update NIC counters? */
+        if (index == 0) {
+            if ((m_nic_rounds_cnt & (NIC_COUNTERS_UPDATE_DECIMATION-1)) == 0) {
+                nic_counters_update(&num_counters);
+            }
+            m_nic_rounds_cnt++;
+        }
+
         value = m_eth_stats_handle.super.stats->data[index];
     }
-#endif
 
     return value;
 }
 
-const char *
-ucx_sampling::nic_counter_name_get(uint32_t index)
+void
+ucx_sampling::nic_counter_name_get(uint32_t index, string *name)
 {
-    const char *counter_name = NULL;
-
-#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
     if (m_nic_counters_initialized) {
-        counter_name =
+        *name =
             (const char *)&m_eth_stats_handle.super.strings->data[index * ETH_GSTRING_LEN];
     }
-#endif
-
-    return counter_name;
 }
+
+void
+ucx_sampling::nic_counter_name_filter(string *name)
+{
+    std::string filter_chars = "0123456789:";
+
+    name->erase(
+              remove_if(name->begin(), name->end(),
+                        [&filter_chars](const char &c) {
+                            return filter_chars.find(c) != std::string::npos;
+                        }),
+                        name->end());
+}
+
+int
+ucx_sampling::aggt_sum_counter_name_index_find(string *cnt_name, string *aggt_cnts_names, uint32_t aggt_cnt_num,
+                   uint32_t *agrgt_counter_index)
+{
+    uint32_t i;
+
+    for (i = 0; i < aggt_cnt_num; i++) {
+        if (*cnt_name == aggt_cnts_names[i]) {
+            *agrgt_counter_index = i;
+            return 1;
+        }
+    }
+
+    /* Not found */
+    *agrgt_counter_index = -1;
+
+    return 0;
+}
+
+/*
+   Updates and aggregate sums counters.
+
+   returns: The number of counters in the aggregate list.
+*/
+uint32_t
+ucx_sampling::nic_counters_aggregate()
+{
+    string cnt_name;
+    uint32_t index = 0;
+    uint32_t filtered_index = 0;
+    uint32_t agrgt_counter_index;
+    int ret;
+
+    /* Update NIC counters */
+    nic_counters_update(&m_num_nic_counters_total);
+
+    while (index < m_num_nic_counters_total) {
+
+        /* Get the next counter name */
+        nic_counter_name_get(index, &cnt_name);
+
+        /* Filter out characters (to get aggregate_sum name) */
+        nic_counter_name_filter(&cnt_name);
+
+        /* Is counter already in list? */
+        ret = aggt_sum_counter_name_index_find(&cnt_name, m_nic_cnts_agrgt_names,
+                  filtered_index, &agrgt_counter_index);
+        if ( (ret == 0) && (filtered_index < NUM_NIC_AGGREGATE_CNTS_MAX) ) {
+            DEBUG_PRINT("Adding new counter: cnt_name = %s\n", cnt_name.c_str());
+
+            agrgt_counter_index = filtered_index;
+            m_nic_cnts_agrgt_names[agrgt_counter_index] = cnt_name;
+            filtered_index++;
+        }
+
+        /* Add index of counter to database */
+        m_nic_cnts_agrgt_mapping[index] = agrgt_counter_index;
+
+        index++;
+    }
+
+    m_nic_cnts_agrgt_num = filtered_index;
+
+    return m_nic_cnts_agrgt_num;
+}
+
+#endif /* UCX_STATS_NIC_COUNTERS_ENABLE */
+
+

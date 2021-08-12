@@ -8,6 +8,7 @@
 #define _UCX_SAMPLING_H_
 
 #include <stdint.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,8 @@ extern "C" {
 #include <ucs/counters/ethtool_ctrs.h>
 #endif
 
+using namespace std;
+
 #define THRESHOLD 						0
 #define NOT_FOUND 						-1
 #define FALSE 							0
@@ -39,6 +42,12 @@ extern "C" {
 /* Maximum number of aggregate-sum counters */
 #define UCX_AGGREGATE_SUM_NUM_COUNTERS_MAX 64
 
+/* Number of aggregate sum counters */
+#define NUM_NIC_AGGREGATE_CNTS_MAX         1024
+
+/* Total number of NIC counters */
+#define NUM_NIC_CNTS_MAX                   (10*1024)
+
 /*********************************/
 /* Main class for ucx Sampling */
 /*********************************/
@@ -49,6 +58,10 @@ public:
 
    /* Destructor */
    ~ucx_sampling();
+
+   /* Set data acquisition configuration */
+   void
+   configuration_set(int ucx_counters_enable, int nic_counters_enable);
 
    /* Read current value of a PVAR */
    int
@@ -73,6 +86,13 @@ public:
    ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_counter_name_t **names_p,
        size_t *size_p);
 
+   size_t
+   ucx_statistics_aggrgt_sum_total_counters_num_get() {
+       return m_aggrgt_sum_size;
+   }
+
+#if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
+
    /* Read NIC counters into stats handle ==> Update statistics */
    void
    nic_counters_update(size_t *num_counters);
@@ -82,8 +102,31 @@ public:
    nic_counter_value_get(uint32_t index);
 
    /* Get NIC counter name - Returns the counter name */
-   const char *
-   nic_counter_name_get(uint32_t index);
+   void
+   nic_counter_name_get(uint32_t index, string *name);
+
+   void
+   nic_counter_name_filter(string *name);
+
+   /* Get the total number of aggregate-sum NIC counters */
+   size_t
+   nic_counter_total_aggrgt_num_counters() {
+       return m_nic_cnts_agrgt_num;
+   }
+
+   int
+   aggt_sum_counter_name_index_find(string *cnt_name, string *aggt_cnts_names, uint32_t aggt_cnt_num,
+        uint32_t *agrgt_counter_index);
+
+   /*
+      Updates and aggregate sums counters (required to be executed only once).
+
+      returns: The number of counters in the aggregate list.
+   */
+   uint32_t
+   nic_counters_aggregate();
+
+#endif /* UCX_STATS_NIC_COUNTERS_ENABLE */
 
 private:
 
@@ -125,8 +168,13 @@ private:
 
    /* The counters names */
    const ucs_stats_aggrgt_counter_name_t *m_aggrgt_sum_counter_names;
+
    /* The size of the counters names */
    size_t m_aggrgt_sum_counter_names_size;
+
+   /* Enable functionality (UCX / NIC counters) */
+   int m_ucx_counters_collect_enable;
+   int m_nic_counters_collect_enable;
 
 #if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
    /* NIC counters handle */
@@ -134,6 +182,24 @@ private:
 
    /* NIC device name */
    const char *m_nic_ndev_name;
+
+   /* NIC counters database: Number of aggregate-sum counters */
+   uint32_t m_nic_cnts_agrgt_num;
+
+   /* NIC counters index mapping: counter_index->aggregate_sum_index */
+   uint32_t m_nic_cnts_agrgt_mapping[NUM_NIC_CNTS_MAX];
+
+   /* NIC counters aggregate counters value */
+   uint64_t m_nic_cnts_agrgt[NUM_NIC_AGGREGATE_CNTS_MAX];
+
+   /* NIC counters aggregate counters names */
+   string m_nic_cnts_agrgt_names[NUM_NIC_AGGREGATE_CNTS_MAX];
+
+   /* Total number of NIC counters */
+   uint64_t m_num_nic_counters_total;
+
+   /* Decimation count (number of rounds) */
+   uint32_t m_nic_rounds_cnt;
 #endif
 
    /* NIC counters initialized status */
