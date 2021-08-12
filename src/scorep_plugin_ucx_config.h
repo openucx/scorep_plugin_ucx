@@ -23,7 +23,7 @@
    Enable plugin gathering of NIC counters.
    Note, that this feature is only supporte over HUCX and not over OpenUCX.
 */
-#define UCX_STATS_NIC_COUNTERS_ENABLE
+//#define UCX_STATS_NIC_COUNTERS_ENABLE
 
 /*
    An environment variable that Sets the NIC device name for the
