@@ -142,5 +142,8 @@ mlx5_1 port 1 ==> ib0 (Down)
 mlx5_2 port 1 ==> ens2f0 (Up)
 mlx5_3 port 1 ==> ib1 (Down)
 
+Note, that this feature is disabled by default and is only supported over HUCX: https://github.com/kunpengcompute/hucx
+It can be enabled by editing the following file: src/scorep_plugin_ucx_config.h and enabling the UCX_STATS_NIC_COUNTERS_ENABLE compilation flag.
+
 ```
 
