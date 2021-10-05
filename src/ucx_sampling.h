@@ -86,6 +86,9 @@ public:
    ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_counter_name_t **names_p,
        size_t *size_p);
 
+   void
+   ucx_statistics_aggregate_counter_size_assign(size_t size);
+
    size_t
    ucx_statistics_aggrgt_sum_total_counters_num_get() {
        return m_aggrgt_sum_size;

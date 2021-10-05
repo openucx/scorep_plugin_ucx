@@ -31,6 +31,8 @@ extern "C" {
 #include <ucx_sampling.h>
 #include <plugin_types.h>
 
+#define METRIC_NAMES_FILENAME "ucx_plugin_metric_names.txt"
+
 using namespace scorep::plugin::policy;
 using ThreadId = std::thread::id;
 using TimeValuePair = std::pair<scorep::chrono::ticks, double>;
@@ -128,6 +130,13 @@ class scorep_plugin_ucx : public scorep::plugin::base<scorep_plugin_ucx,
         /* UCX statistics - Legacy enumerator */
         void
         ucx_statistics_enumerate_legacy(uint64_t dummy);
+
+        void
+        metric_name_add_to_file(char *metric_name);
+
+        int
+        metric_name_read_counters_list_from_file(std::vector<std::string> *counters_list);
+
 };
 
 
@@ -139,43 +148,47 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
     int flag;
     int is_value_updated;
     size_t num_ucx_aggrgt_sum_cnts;
+    const ucs_stats_aggrgt_counter_name_t *counter_names;
+    size_t size;
+    uint32_t index;
+    uint64_t counter_value;
 
     *value = 0;
     *prev_value = 0;
 
-#if defined(SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE)
-    /* UCX counter */
-    /* Enumerate PVARs */
     if (0 == m_mpi_t_initialized) {
+        is_value_updated = 1;
 
-       ret = MPI_Initialized(&flag);
-       if (flag) {
-         m_mpi_t_initialized = 1;
-         /* get global rank */
-         PMPI_Comm_rank(MPI_COMM_WORLD, &m_mpi_rank);
-         //std::cout << "MPI_rank = " << m_mpi_rank << std::endl;
-       }
-       is_value_updated = 1;
-    }
-    else {
-        /*
-           Need MPI_T initialization here since the UDP port number of the
-           UCX statistics server is derived from the process_id.
-           Also, all statistics are aggregated by MPI_rank 0 (root).
-        */
-        if (m_mpi_rank == 0) {
-            /* Get UCX statistics */
-            ret = m_ucx_sampling.ucx_statistics_current_value_get(m_mpi_rank, id,
-                      &m_ucx_counters_list, value, &prev_val);
-            if (*value != prev_val) {
-                is_value_updated = 1;
+        ret = MPI_Initialized(&flag);
+        if (flag) {
+            m_mpi_t_initialized = 1;
+            /* get global rank */
+            PMPI_Comm_rank(MPI_COMM_WORLD, &m_mpi_rank);
+
+            /* ===> New mode: Use the UCX aggregate-sum API to reduce the amount of collected information */
+            /* For now, we need to enable the server to enable UCX counters collection */
+            if (m_mpi_rank == 0) {
+                /* Start UCX statistics server */
+                ret = m_ucx_sampling.ucx_statistics_server_start(UCS_STATS_DEFAULT_UDP_PORT);
             }
-            else {
-                is_value_updated = 0;
+
+            index = 0;
+            ret = m_ucx_sampling.ucx_statistics_aggregate_counter_get(index, &counter_value);
+            if (!ret) {
+                printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
+            }
+
+            /* Initialize the UCX aggregate-sum API */
+            ret = m_ucx_sampling.ucx_statistics_aggregate_counter_names_get(&counter_names, &size);
+            if (!ret) {
+                printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
             }
         }
+        else {
+            return is_value_updated;
+        }
     }
-#else
+
     /* Update counter via Aggregate-sum API */
     num_ucx_aggrgt_sum_cnts = m_ucx_sampling.ucx_statistics_aggrgt_sum_total_counters_num_get();
     if (id < num_ucx_aggrgt_sum_cnts) {
@@ -194,7 +207,6 @@ scorep_plugin_ucx::current_value_get(int32_t id, uint64_t *value, uint64_t *prev
         is_value_updated = 1;
 #endif
     }
-#endif //SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE
 
     return is_value_updated;
 }

@@ -350,6 +350,12 @@ ucx_sampling::ucx_statistics_aggregate_counter_names_get(const ucs_stats_aggrgt_
     return (m_aggrgt_sum_counter_names_size > 0);
 }
 
+void
+ucx_sampling::ucx_statistics_aggregate_counter_size_assign(size_t size)
+{
+    m_aggrgt_sum_counter_names_size = size;
+}
+
 /* NIC counters implementation */
 #if defined(UCX_STATS_NIC_COUNTERS_ENABLE)
 

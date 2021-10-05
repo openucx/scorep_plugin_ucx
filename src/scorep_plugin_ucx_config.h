@@ -2,12 +2,6 @@
 #define _SCOREP_PLUGIN_UCX_CONFIG_H_
 
 /*
-   Enable plugin in UCX Statistics legacy mode
-   (i.e. don't use aggregate-sum)
-*/
-//#define SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE
-
-/*
    Enable plugin microbenchmark: Measure mean CPU cycles
    for getting a single counter value.
 */

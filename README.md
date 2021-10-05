@@ -83,7 +83,7 @@ export UCX_STATS_DEST="udp:localhost:37873"
 
 # Contact us at,
 
-shuki.zanyovka@huawei.com
+shuki.zanyovka@gmail.com
 
 # Enable tracing
 
@@ -115,8 +115,7 @@ mpirun -n 2 <mpi_application>
 # UCX aggregate-sum counters statistics
 ```
 The Score-P UCX plugin uses the UCX aggregate-sum counters statistics by default - This basically means that,
-1) All counters values of the same class/type will be saved in the same counter in the trace.
-2) The user can build the plugin without using this feature by enabling the SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE flag in scorep_plugin_ucx.h
+- All counters values of the same class/type will be saved in the same counter in the trace.
 
 Please note, that the user should set the environment variables as follows to collect the UCX software counters,
 # Enable UCX SW counters collection.

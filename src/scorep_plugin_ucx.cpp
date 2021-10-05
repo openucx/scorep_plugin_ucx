@@ -68,17 +68,6 @@ scorep_plugin_ucx::scorep_plugin_ucx()
 
 scorep_plugin_ucx::~scorep_plugin_ucx()
 {
-#if defined(SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE)
-    uint64_t i;
-
-    for (i = 0; i < m_ucx_counters_list.size(); i++) {
-        delete m_ucx_counters_list[i];
-    }
-
-    /* Deallocate metrics names */
-    free(m_metric_names);
-#endif
-
 #if defined(SCOREP_PLUGIN_MICROBENCHMARK_ENABLE)
     double mean_get_count_ticks = m_ticks_cnt_get_total / m_ticks_cnt_get_num_times;
     printf("==================================================\n");
@@ -207,6 +196,8 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
     const ucs_stats_aggrgt_counter_name_t *counter_names;
     size_t size;
     uint64_t value;
+    int metrics_names_file_exists = 0;
+    std::vector<std::string> counters_list;
 
     DEBUG_PRINT("scorep_plugin_ucx::get_metric_properties() called with: %s\n",
             metric_name);
@@ -219,92 +210,81 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
         m_ucx_metric_name = metric_name;
         m_n_ucx_counters = UCX_NUM_TEMPORARY_COUNTERS;
 
-        /* Don't re-initialize MPI if already iniitalized */
-        ret = PMPI_Initialized(&is_initialized);
-        DEBUG_PRINT("MPI_Init(): Checking if initialized: %d\n", is_initialized);
-        if (!is_initialized) {
-           DEBUG_PRINT("get_metric_properties: global_argc=%d, global_argv=%p",
-               global_argc, global_argv);
-           PMPI_Init(&global_argc, &global_argv);
-        }
-
-        m_mpi_t_initialized = 1;
-        /* get global rank */
-        PMPI_Comm_rank(MPI_COMM_WORLD, &m_mpi_rank);
-
-        /*
-           Need MPI_T initialization here since the UDP port number of the
-           UCX statistics server is derived from the process_id.
-           Also, all statistics are aggregated by MPI_rank 0 (root).
-        */
-        DEBUG_PRINT("m_mpi_rank = %d\n", m_mpi_rank);
-
-        /* Legacy mode? ==> Use all counters */
-#if defined(SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE)
         /* UCX counters collection enabled? */
         if (m_ucx_counters_collect_enable) {
+            /* Check if we have the metrics name file from the previous run */
+            metrics_names_file_exists = metric_name_read_counters_list_from_file(&counters_list);
+            if (!metrics_names_file_exists) {
+                /* Don't re-initialize MPI if already iniitalized */
+                ret = PMPI_Initialized(&is_initialized);
+                DEBUG_PRINT("MPI_Init(): Checking if initialized: %d\n", is_initialized);
+                if (!is_initialized) {
+                   DEBUG_PRINT("get_metric_properties: global_argc=%d, global_argv=%p",
+                       global_argc, global_argv);
+                   PMPI_Init(&global_argc, &global_argv);
+                }
 
-            /* Legacy enumerate statistics (i.e. no aggregate-sum) */
-            ucx_statistics_enumerate_legacy();
+                /* get global rank */
+                PMPI_Comm_rank(MPI_COMM_WORLD, &m_mpi_rank);
 
-            /*
-              Create counters as place holders, we're not sure how many we
-              will need.
-            */
-            offset = 0;
-            for (i = 0; i < m_n_ucx_counters; i++) {
-                char *name;
-                std::string temp_counter_name;
+                m_mpi_t_initialized = 1;
 
+                /*
+                   Need MPI_T initialization here since the UDP port number of the
+                   UCX statistics server is derived from the process_id.
+                   Also, all statistics are aggregated by MPI_rank 0 (root).
+                */
+                DEBUG_PRINT("m_mpi_rank = %d\n", m_mpi_rank);
+
+                /* ===> New mode: Use the UCX aggregate-sum API to reduce the amount of collected information */
+                /* For now, we need to enable the server to enable UCX counters collection */
                 if (m_mpi_rank == 0) {
-                    name = m_ucx_counters_list[i]->name;
-                }
-                else {
-                    name = &m_metric_names[offset];
-                    offset += (::strlen(&m_metric_names[offset]) + 1);
+                    /* Start UCX statistics server */
+                    ret = m_ucx_sampling.ucx_statistics_server_start(UCS_STATS_DEFAULT_UDP_PORT);
                 }
 
-                DEBUG_PRINT("[%d] Adding metric name: %s\n", m_mpi_rank, temp_counter_name.c_str());
-
-                temp_counter_name = metric_name + "_" + name;
-
-                metric_properties.insert(metric_properties.end(),
-                   MetricProperty(temp_counter_name.c_str(), "", "").absolute_point().value_uint().decimal());
-            }
-        }
-    }
-#else
-        /* UCX counters collection enabled? */
-        if (m_ucx_counters_collect_enable) {
-
-            /* ===> New mode: Use the UCX aggregate-sum API to reduce the amount of collected information */
-            /* For now, we need to enable the server to enable UCX counters collection */
-            if (m_mpi_rank == 0) {
-                /* Start UCX statistics server */
-                ret = m_ucx_sampling.ucx_statistics_server_start(UCS_STATS_DEFAULT_UDP_PORT);
-            }
-
-            index = 0;
-            ret = m_ucx_sampling.ucx_statistics_aggregate_counter_get(index, &value);
-            if (!ret) {
-                printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
-            }
-
-            ret = m_ucx_sampling.ucx_statistics_aggregate_counter_names_get(&counter_names, &size);
-            if (!ret) {
-                printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
+                index = 0;
+                ret = m_ucx_sampling.ucx_statistics_aggregate_counter_get(index, &value);
+                if (!ret) {
+                    printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
+                }
             }
 
             /* Update Score-P with metrics names */
-            for (i = 0; i < size; i++) {
-                std::string temp_counter_name;
+            if (metrics_names_file_exists) {
+                /* Assign number of counters */
+                m_ucx_sampling.ucx_statistics_aggregate_counter_size_assign(counters_list.size());
 
-                DEBUG_PRINT("[%d] Adding metric name: %s\n", m_mpi_rank, temp_counter_name.c_str());
+                /* Add counters read from file */
+                for (i = 0; i < counters_list.size(); i++) {
+                    DEBUG_PRINT("[%d] Adding metric name: %s\n", m_mpi_rank, counters_list[i].c_str());
 
-                temp_counter_name = metric_name + "_" + counter_names[i].class_name + "_" + counter_names[i].counter_name;
+                    metric_properties.insert(metric_properties.end(),
+                       MetricProperty(counters_list[i].c_str(), "", "").absolute_point().value_uint().decimal());
+                }
+            }
+            else {
+                ret = m_ucx_sampling.ucx_statistics_aggregate_counter_names_get(&counter_names, &size);
+                if (!ret) {
+                    printf("Warning! ucx_statistics_aggregate_counter_get() failed, ret=%d\n", ret);
+                }
 
-                metric_properties.insert(metric_properties.end(),
-                   MetricProperty(temp_counter_name.c_str(), "", "").absolute_point().value_uint().decimal());
+                /* Add counters from aggregate-sum */
+                for (i = 0; i < size; i++) {
+                    std::string temp_counter_name;
+
+                    DEBUG_PRINT("[%d] Adding metric name: %s\n", m_mpi_rank, temp_counter_name.c_str());
+
+                    temp_counter_name = metric_name + "_" + counter_names[i].class_name + "_" + counter_names[i].counter_name;
+
+                    metric_properties.insert(metric_properties.end(),
+                       MetricProperty(temp_counter_name.c_str(), "", "").absolute_point().value_uint().decimal());
+
+                    /* Add metric to file for the next run */
+                    if (m_mpi_rank == 0) {
+                        metric_name_add_to_file((char *)temp_counter_name.c_str());
+                    }
+                }
             }
         }
 
@@ -328,10 +308,8 @@ scorep_plugin_ucx::get_metric_properties(const std::string& metric_name)
                    MetricProperty(temp_counter_name.c_str(), "", "").absolute_point().value_uint().decimal());
             }
         }
-
 #endif /* UCX_STATS_NIC_COUNTERS_ENABLE */
     }
-#endif /* SCOREP_PLUGIN_UCX_STATISTICS_LEGACY_ENABLE */
     else if ((event == SCOREP_STRICTLY_SYNCHRONOUS_METRIC_NAME_UPDATE_FUNC_NAME) ||
              (event == SCOREP_METRIC_NAME_UPDATE_FUNC_NAME)) {
         assigned_event = 1;
@@ -425,5 +403,48 @@ scorep_plugin_ucx::ucx_counters_scorep_update(void)
     }
 }
 
+void
+scorep_plugin_ucx::metric_name_add_to_file(char *metric_name)
+{
+    FILE *file;
+
+    file = fopen(METRIC_NAMES_FILENAME, "a");
+    if (file) {
+        fwrite(metric_name, 1, strlen(metric_name), file);
+        fwrite("\n", 1, 1, file);
+        fclose(file);
+    }
+}
+
+int
+scorep_plugin_ucx::metric_name_read_counters_list_from_file(std::vector<std::string> *counters_list)
+{
+    FILE *file;
+    char temp_counter_name[512];
+
+    file = fopen(METRIC_NAMES_FILENAME, "r");
+    if (file) {
+
+        while (fgets(temp_counter_name, sizeof(temp_counter_name), file)) {
+            char char_to_filter = '\n';
+            uint32_t i;
+            uint32_t len = strlen(temp_counter_name);
+
+            /* Filter the carriage return character */
+            if (temp_counter_name[len - 1] == char_to_filter) {
+                temp_counter_name[len - 1] = 0x00;
+            }
+
+            counters_list->push_back(temp_counter_name);
+
+        }
+
+        fclose(file);
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
 
 SCOREP_METRIC_PLUGIN_CLASS(scorep_plugin_ucx, "scorep_plugin_ucx")
